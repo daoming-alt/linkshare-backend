@@ -77,7 +77,15 @@ func WebSocketHandler(c *gin.Context) {
     userID, _ := c.Get("user_id")
     deviceID := c.Query("device_id") // Device ID passed as query param
 
+    // Validate device_id
+    parsedDeviceID := parseDeviceID(deviceID)
+    if parsedDeviceID == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid device_id"})
+        return
+    }
+
     // Upgrade HTTP to WebSocket
+    // Ensure the Authorization header is passed correctly
     conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
     if err != nil {
         log.Println("WebSocket upgrade error:", err)
@@ -89,11 +97,19 @@ func WebSocketHandler(c *gin.Context) {
     if _, exists := connections[userID.(int)]; !exists {
         connections[userID.(int)] = make(map[int]*websocket.Conn)
     }
-    connections[userID.(int)][parseDeviceID(deviceID)] = conn
+    connections[userID.(int)][parsedDeviceID] = conn
     connMutex.Unlock()
 
+    // Send connection confirmation message
+    err = conn.WriteJSON(map[string]string{"message": "Connected"})
+    if err != nil {
+        log.Println("WebSocket write error for connection message:", err)
+        conn.Close()
+        return
+    }
+
     // Update device last seen
-    _, err = db.DB.Exec("UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", deviceID, userID)
+    _, err = db.DB.Exec("UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?", parsedDeviceID, userID)
     if err != nil {
         log.Println("Failed to update last_seen:", err)
     }
@@ -104,7 +120,7 @@ func WebSocketHandler(c *gin.Context) {
         if err != nil {
             log.Println("WebSocket read error:", err)
             connMutex.Lock()
-            delete(connections[userID.(int)], parseDeviceID(deviceID))
+            delete(connections[userID.(int)], parsedDeviceID)
             if len(connections[userID.(int)]) == 0 {
                 delete(connections, userID.(int))
             }
@@ -116,8 +132,12 @@ func WebSocketHandler(c *gin.Context) {
 }
 
 func parseDeviceID(deviceID string) int {
-    // Convert deviceID string to int (simplified; add error handling in production)
+    // Convert deviceID string to int with error handling
     var id int
-    fmt.Sscanf(deviceID, "%d", &id)
+    _, err := fmt.Sscanf(deviceID, "%d", &id)
+    if err != nil {
+        log.Println("Invalid device_id:", deviceID)
+        return 0
+    }
     return id
 }

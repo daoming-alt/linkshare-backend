@@ -1,0 +1,291 @@
+openapi: 3.0.3
+info:
+  title: LinkShare Backend API
+  description: Backend API for sharing links between devices (PC and phone). Supports user authentication, device registration, device discovery, and link transfer with real-time delivery via WebSocket.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+    description: Local development server
+  - url: https://api.linkshare.example.com/api
+    description: Production server
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: password123
+    Device:
+      type: object
+      required:
+        - name
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: MyPhone
+        last_seen:
+          type: string
+          format: date-time
+          example: 2025-07-13T11:20:00Z
+    Link:
+      type: object
+      required:
+        - from_device_id
+        - to_device_id
+        - url
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 1
+        from_device_id:
+          type: integer
+          example: 1
+        to_device_id:
+          type: integer
+          example: 2
+        url:
+          type: string
+          format: uri
+          example: https://example.com
+        created_at:
+          type: string
+          format: date-time
+          example: 2025-07-13T11:20:00Z
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Invalid input
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: User registered
+paths:
+  /register:
+    post:
+      summary: Register a new user
+      description: Creates a new user with an email and password.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: User successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid input or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /login:
+    post:
+      summary: User login
+      description: Authenticates a user and returns a JWT token.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: Successful login with JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /devices:
+    post:
+      summary: Register a device
+      description: Registers a new device for the authenticated user.
+      tags:
+        - Devices
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: MyPhone
+              required:
+                - name
+      responses:
+        '200':
+          description: Device successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      summary: List devices
+      description: Returns a list of devices registered by the authenticated user.
+      tags:
+        - Devices
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /links:
+    post:
+      summary: Send a link
+      description: Sends a link from one device to another for the authenticated user.
+      tags:
+        - Links
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Link'
+      responses:
+        '200':
+          description: Link successfully sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /ws:
+    get:
+      summary: WebSocket for link delivery
+      description: Establishes a WebSocket connection for real-time link delivery. Requires JWT authentication and a device_id query parameter.
+      tags:
+        - WebSocket
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: device_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            example: 1
+        - name: threshold
+          in: query
+          required: false
+          schema:
+            type: integer
+            example: 3600
+            default: 3600
+          description: Time threshold in seconds for pending links (e.g., 3600 for 1 hour)
+      responses:
+        '101':
+          description: WebSocket connection established
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid device_id or threshold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+        
